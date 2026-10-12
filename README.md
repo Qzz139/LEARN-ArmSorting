@@ -1,96 +1,110 @@
+# RoboMaster EP Six-Object Sorting
 
- ## 原始任务要求
- 二、任务简化与系统接口
+English | [简体中文](README.zh-CN.md)
 
-桌面设置4–6个固定取物网格。视觉系统判断每个网格是否有物体及其类别，机械臂根据网格编号调用固定点抓取程序，不要求任意位置抓取。
+## Demo
 
-* 图像接口：sensor_msgs/Image。
-* 检测接口：vision_msgs/Detection2DArray，至少包含类别、检测框和置信度。
-* 抓取接口：ROS 2 Action或等价的可反馈长时间任务接口。
-* 任务控制：BehaviorTree或状态机。
+Real-robot run: sorting 3 tennis balls + 3 water bottles (sped up).
 
-三、仿真实验任务
+https://github.com/user-attachments/assets/731c6d1a-fc6a-4c20-8b2b-e82314770e40
 
-1. 建立机械臂、夹爪、俯视相机、桌面网格、至少2类物体。
-2. 仿真相机发布图像，识别节点发布物体类别、检测框和置信度。
-3. 根据检测框中心确定物体所在网格，并根据类别选择对应料盒。
-4. 调用抓取动作，完成取物、分类放置和返回。
-5. 循环处理桌面上的物体，直至全部处理完成或没有可执行目标。
-6. 处理空网格、未识别物体、不可达目标和抓取失败等异常。
-7. 使用一个Launch文件启动相机、识别、机械臂和任务控制节点。
+Full-length original (3:25): [photos/result.mp4](photos/result.mp4)
 
-四、仿真验收标准
+## Original Task Requirements
 
-* 自动识别并分类不少于2类物体。
-* 测试不少于6个物体，至少正确整理5个。
-* 任务开始后不得人工指定物体类别、抓取网格或放置区域。
-* 全过程不发生明显碰撞或关节超限。
-* 至少正确处理2类异常，并保存识别、抓取和任务状态日志。
-* 一个Launch文件能够启动完整仿真系统。
+### 2. Task Simplification and System Interfaces
 
-五、真机验证任务
+Set up 4–6 fixed pick-up grid cells on the table. The vision system determines whether each cell contains an object and its class; the arm calls a fixed-point grasp routine by cell number. Grasping at arbitrary positions is not required.
 
-1. 固定俯视RGB相机，在真实桌面标记取物网格和不少于2个分类区域。
-2. 准备不少于2类、共6个目标物体。
-3. 使用前序实验训练的检测模型识别物体类别和网格位置。
-4. 使用真机抓取程序，将不同类别放入对应料盒。
-5. 空网格和未识别物体应跳过；抓取失败或目标不可达时应返回安全位置或停止。
-6. 保存每个物体的识别类别、抓取结果、放置结果和异常信息。
+* Image interface: `sensor_msgs/Image`.
+* Detection interface: `vision_msgs/Detection2DArray`, containing at least class, bounding box and confidence.
+* Grasp interface: ROS 2 Action or an equivalent long-running task interface with feedback.
+* Task control: BehaviorTree or state machine.
 
-六、真机验收标准
+### 3. Simulation Tasks
 
-* 自动分类不少于2类物体。
-* 6个物体中至少正确整理5个。
-* 正常任务过程中不进行人工类别判断和动作触发。
-* 至少正确处理空网格和未识别物体两种情况。
-* 不发生碰撞、超限或危险动作，异常时能够安全停止。
-* 一个Launch文件能够启动图像、识别、机械臂和任务控制节点。
+1. Build the arm, gripper, top-down camera, table grid and at least 2 object classes.
+2. The simulated camera publishes images; the detection node publishes object class, bounding box and confidence.
+3. Determine the object's grid cell from the bounding-box center, and choose the bin by class.
+4. Call the grasp action to pick, place by class and return.
+5. Loop over the objects on the table until all are handled or no executable target remains.
+6. Handle exceptions such as empty cells, unrecognized objects, unreachable targets and grasp failures.
+7. Start the camera, detection, arm and task-control nodes from a single launch file.
 
-七、提交材料
+### 4. Simulation Acceptance Criteria
 
-* 完整ROS 2工程、Launch文件和依赖说明。
-* 目标检测模型、类别说明及桌面网格配置。
-* BehaviorTree XML或状态机配置文件。
-* 仿真与真机演示视频。
-* 分类结果、异常测试记录、任务日志和简要实验报告。
+* Automatically detect and sort at least 2 object classes.
+* Test at least 6 objects and correctly sort at least 5.
+* No manual specification of object class, grasp cell or placement area after the task starts.
+* No obvious collisions or joint-limit violations during the whole run.
+* Correctly handle at least 2 kinds of exceptions, and save detection, grasp and task-state logs.
+* One launch file starts the complete simulation system.
 
-## 个人补充要点
-* 核心设备：robomaster ep + jetson orinX
-* 设定两类物体：网球+550ml标准水瓶
+### 5. Real-Robot Validation Tasks
 
-实现方案要点（建设中ing)：
-* 1.机械臂初始姿态为摄像机位置服务，确保在一个视野良好，识别率和识别范围都舒适的角度和位置
-* 2.机械臂大部分时候处于两个关节均回收的“收回”状态（包括但不限于零态、抓取到物品后的底盘旋转、移动）。仅在取物品时伸出
-* 3.底盘的初始位置距物品较远，为摄像机有较好的位置。
-* 得益于robomaster EP机械臂的简单双平行关节结构。“伸出”抓取物体的必要条件是物体位于摄像头画面的正中。问题在于如何在摄像头不具备深度信息的前提下判断物品是否能被够到。
-* 关于网球和水瓶的不同高度，其实只需要设置两个固定的分别用于这两种物体的抓夹高度。有视觉识别这一前提，判断使用哪种高度不成问题。
+1. Fix a top-down RGB camera; mark pick-up cells and at least 2 sorting areas on a real table.
+2. Prepare 6 target objects across at least 2 classes.
+3. Use the detection model trained in earlier experiments to recognize object class and grid position.
+4. Use the real-robot grasp routine to put each class into its bin.
+5. Skip empty cells and unrecognized objects; on grasp failure or an unreachable target, return to a safe pose or stop.
+6. Save the detected class, grasp result, placement result and exception info for every object.
 
-* 抓取触发判定为红外原始读数不大于20 mm（连续3次）；实测近距离读数不等于尺量距离。
-* 近抓夹舵机永远不动，底盘舵机默认向前伸至最远。仅在抓取到目标后收回至最内，并保持至底盘转移到目标放置角度后，伸出进行放置。
-* 抓夹仅在抓取中收紧，其余时候松开
-* 结合以上可得出初始状态：外伸、抓夹松开。程序开始和结束后都要回归初始态。（中途错误卡死不需要回归，但要切换身体LED为红色）
+### 6. Real-Robot Acceptance Criteria
 
-## 红外抓放测试 demo
+* Automatically sort at least 2 object classes.
+* Correctly sort at least 5 of 6 objects.
+* No manual class judgment or action triggering during a normal run.
+* Correctly handle at least two cases: empty cells and unrecognized objects.
+* No collisions, limit violations or dangerous motions; stop safely on exceptions.
+* One launch file starts the image, detection, arm and task-control nodes.
 
-在 Ubuntu/Jetson 上运行 `./scripts/run_ir_demo_ubuntu.sh` 可预览配置，默认不会连接机器人。
-单次流程为红外原始读数不大于20 mm时夹取、内收搬运、右转 90° 放置，再返回外伸松爪初始态。
-普通官方 `models/yolo26m.pt` 已包含在仓库，YOLO 独立输出日志，不参与动作判定。
-实机执行前需要确认配置中的舵机映射和外伸/内收角度；详见
-[demo 使用说明](docs/ir_pick_place_demo.md)。
+### 7. Deliverables
 
-红外距离实测使用 `bash scripts/run_ir_distance_ubuntu.sh --seconds 8 --label tennis-30mm --reference-mm 30`。
-此程序只记录距离反馈，不发送动作；先按尺量距离摆好目标，再运行。详见
-[红外实测说明](docs/ir_distance_measurement.md)。
+* Complete ROS 2 workspace, launch files and dependency notes.
+* Object detection model, class description and table grid configuration.
+* BehaviorTree XML or state-machine configuration.
+* Simulation and real-robot demo videos.
+* Sorting results, exception test records, task logs and a short experiment report.
 
-## YOLO转向与距离调整抓放demo（单个网球或瓶子）
+## Personal Notes
 
-针对物品偏左/偏右的情况，底盘根据YOLO框中心每次小转最多5°，重新识别后再修正。
-连续三帧居中后，红外高于阈值则以4cm/s约1cm一步接近，停车重新识别；默认最多前进20cm。
-红外连续三次满足原始20mm阈值后抓取，此阈值不是实际2cm。无效反馈或目标丢失时停止亮红灯。
-抓夹侧ID2固定1073；底盘侧ID1在600和1190间动作。抓取内收后按里程记录退回起始中心，
-再朝启动方向右侧90°放球；`--target bottle`只跟踪瓶子，并改为左侧90°放置。
-实际yaw反馈补偿对准转角。使用普通`yolo26m.pt`、持续后台取帧与540p图传。
-网球和瓶子均已实机完成对准、接近、抓取、倒车回位、分类方向放置和恢复初态，并获现场确认。
+* Core hardware: RoboMaster EP + Jetson Orin NX
+* Two object classes: tennis balls + standard 550 ml water bottles
+
+Implementation notes (work in progress):
+
+* 1. The arm's initial pose serves the camera: it keeps the view, detection rate and detection range comfortable.
+* 2. Most of the time the arm stays "retracted" with both joints pulled in (including the zero state, and chassis rotation/movement after grabbing an object). It extends only when picking.
+* 3. The chassis starts relatively far from the objects so the camera has a good viewpoint.
+* Thanks to the RoboMaster EP arm's simple dual-parallel-joint structure, a necessary condition for "extending" to grasp is that the object is centered in the camera image. The open question is how to tell whether the object is within reach without depth information from the camera.
+* Tennis balls and bottles differ in height, but two fixed gripper heights (one per class) are enough. Since vision already identifies the class, choosing the height is not a problem.
+
+* Grasp trigger: raw infrared reading ≤ 20 mm, three times in a row. Measured close-range readings do not equal ruler distance.
+* The servo near the gripper never moves. The chassis-side servo extends forward to its farthest position by default. It retracts fully only after grabbing a target, stays retracted until the chassis turns to the placement angle, then extends to place.
+* The gripper closes only while grasping; it stays open otherwise.
+* Combining the above gives the initial state: extended, gripper open. The program returns to it at start and at the end. (If it gets stuck on an error mid-run it does not need to return, but it switches the body LEDs to red.)
+
+## Infrared Pick-and-Place Test Demo
+
+On Ubuntu/Jetson, run `./scripts/run_ir_demo_ubuntu.sh` to preview the configuration; by default it does not connect to the robot.
+A single run grasps when the raw infrared reading is ≤ 20 mm, retracts to carry, turns right 90° to place, then returns to the extended, gripper-open initial state.
+The stock official `models/yolo26m.pt` is included in the repo. YOLO only writes its own log and does not take part in action decisions.
+Before running on the real robot, confirm the servo mapping and extend/retract angles in the config; see the
+[demo guide](docs/ir_pick_place_demo.md).
+
+Measure infrared distance with `bash scripts/run_ir_distance_ubuntu.sh --seconds 8 --label tennis-30mm --reference-mm 30`.
+This only records distance feedback and sends no motion commands; place the target at the ruler-measured distance first, then run it. See the
+[infrared measurement guide](docs/ir_distance_measurement.md).
+
+## YOLO Turn-and-Approach Pick-and-Place Demo (single tennis ball or bottle)
+
+When the object is off to the left or right, the chassis turns at most 5° at a time based on the YOLO box center, then re-detects and corrects.
+After three consecutive centered frames, if the infrared reading is above the threshold it approaches at 4 cm/s in ~1 cm steps, stopping to re-detect each time; by default it advances at most 20 cm.
+It grasps after three consecutive infrared readings meet the raw 20 mm threshold (this is not an actual 2 cm). On invalid feedback or a lost target it stops and lights red.
+Gripper-side servo ID2 is fixed at 1073; chassis-side ID1 moves between 600 and 1190. After grasping and retracting, it backs up to the starting center using odometry,
+then places the ball 90° to the right of the start heading; `--target bottle` tracks only bottles and places them 90° to the left.
+Actual yaw feedback compensates the alignment turn. Uses the stock `yolo26m.pt`, continuous background frame capture and 540p video streaming.
+Both the tennis ball and the bottle have completed alignment, approach, grasp, reversing back, class-direction placement and initial-state recovery on the real robot, confirmed on site.
 
 ```bash
 bash scripts/run_yolo_align_demo_ubuntu.sh --observe
@@ -99,16 +113,16 @@ bash scripts/run_yolo_align_demo_ubuntu.sh --target bottle --observe
 bash scripts/run_yolo_align_demo_ubuntu.sh --target bottle --execute
 ```
 
-仅预览运行脚本不带参数。详见[新demo说明](docs/yolo_align_pick_place_demo.md)。
+Run the script without arguments for preview only. See the [new demo guide](docs/yolo_align_pick_place_demo.md).
 
-## 六物品正式分拣
+## Six-Object Sorting
 
-ROS 2 工程已加入 `ros2_ws/`：包含图像话题、YOLO 检测话题、分拣 Action、任务客户端、Launch 和实际参与流程转移的 YAML 状态机。构建和运行方式见 [ROS 2 工程说明](ros2_ws/README.md)。原有脚本入口保留，便于对照已验证的实机动作。
+A ROS 2 workspace is in `ros2_ws/`: image topic, YOLO detection topic, sorting Action, task client, launch file and a YAML state machine that actually drives the flow transitions. See the [ROS 2 workspace guide](ros2_ws/README.md) for building and running. The original script entry points are kept for comparison with the verified real-robot motions.
 
-程序记录六个方位的待取、已取和未找到状态，每次选择与当前实际朝向转角最小的待取方位。
-复用demo2搜索球和瓶；抓取后退回启动中心，球放右区、瓶放左区，每区三个角度固定放置位。
-放置后松爪内收，直接转到下一搜索角度后再外伸；左右扫描同样先内收转向再外伸，整轮结束先内收回正再恢复初态。
-抓取与六个放置角度配置在`config/object_sorting.json`。2026-09-19整轮运行日志记录3球、3瓶均完成放置动作，程序正常结束；实际落位仍需现场核对。
+The program tracks six directions as pending, picked or not found, and each time picks the pending direction with the smallest turn from the current actual heading.
+It reuses demo 2 to search for balls and bottles. After grasping it backs up to the starting center; balls go to the right area and bottles to the left, each area with three fixed placement angles.
+After placing, it opens the gripper and retracts, turns straight to the next search angle, then extends. Left/right scanning likewise retracts before turning and extends afterward. At the end of a full round it retracts, re-centers, then restores the initial state.
+Grasp and the six placement angles are configured in `config/object_sorting.json`. The 2026-09-19 full-round run log records that all 3 balls and 3 bottles completed placement and the program ended normally; the actual placement positions still need on-site checking.
 
 ```bash
 bash scripts/run_sorting_ubuntu.sh
@@ -116,6 +130,8 @@ bash scripts/run_sorting_ubuntu.sh --observe --observe-frames 3
 bash scripts/run_sorting_ubuntu.sh --execute
 ```
 
-详见[分拣流程与角度配置](docs/object_sorting.md)。
+See [sorting flow and angle configuration](docs/object_sorting.md).
 
-当前用户指定的稳定版标签：`stable-2026-09-18`。参数与验证范围见[稳定版基线](docs/stable_version.md)。
+Current user-designated stable tag: `stable-2026-09-18`. For parameters and verification scope see the [stable baseline](docs/stable_version.md).
+
+> The linked docs under `docs/` and `ros2_ws/` are currently in Chinese.
