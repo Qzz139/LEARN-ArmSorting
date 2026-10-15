@@ -1,125 +1,86 @@
+<div align="center">
+
+[English](./README.md) · **简体中文**
+
 # RoboMaster EP 六物品分拣
 
-[English](README.md) | 简体中文
+RoboMaster EP 用 YOLO 识别网球和水瓶，靠红外触发抓取，并按类别分区放置。
 
-## 演示视频
+[结果](#结果) · [演示](#演示) · [工作流程](#工作流程) · [快速开始](#快速开始) · [环境](#环境)
 
-真机运行：分拣 3 个网球 + 3 个水瓶（加速播放）。
+[![Ubuntu 20.04][ubuntu-shield]][ubuntu-link]
+[![ROS 2 Foxy][ros-shield]][ros-link]
+[![Python 3.8][python-shield]][python-link]
+[![Jetson Orin NX][jetson-shield]][jetson-link]
+
+<img src="assets/hero-sorting.gif" width="480" alt="RoboMaster EP 逐个抓取网球和水瓶，并把每类放到各自的区域">
+
+<sub>真机整轮运行：3 个网球、3 个水瓶分到两个区域（20 倍速）</sub>
+
+</div>
+
+## 结果
+
+| 部分 | 内容 | 关键结果 | 说明 / 证据 |
+| :-- | :-- | :-- | :-- |
+| ✅&nbsp;六物品分拣 | 真机完整任务 | [6/6 放置（3 球、3 瓶），用时 4 分 10 秒](records/object_sorting/20260919/object-sort-19700101T011245258885Z/run.json)¹ | [流程与角度](docs/object_sorting.md) · [视频](photos/result.mp4) |
+| ✅&nbsp;单物品&nbsp;demo | 真机，单个网球或水瓶 | [网球](records/yolo_alignment/20260918/yolo-align-19700101T035651387074Z/run.json)和[水瓶](records/yolo_alignment/20260918/yolo-align-19700101T041506006690Z/run.json)均完成整轮；回位误差 6.33 mm / 5.66 mm | [demo 说明](docs/yolo_align_pick_place_demo.md) · [测试记录](docs/yolo_alignment_hardware_tests.md) |
+| 🚧&nbsp;ROS 2 封装 | 节点、Action、状态机、Launch | 尚无存档的真机整轮运行 | [ROS 2 说明](ros2_ws/README.md) |
+| 🚧&nbsp;仿真 | Gazebo 中使用同一检测节点 | [放置 1/6，未完成整轮](records/simulation/gazebo-sort-19700101T052904Z/summary.json) | [仿真说明](ros2_ws/src/ep_sorting_sim/README.md) |
+
+<sub>✅ 已完成 · 🚧 进行中</sub>
+
+<sub>¹ “放置”按 `sorting_item_placed` 事件计数，表示机械臂完成了放置动作；日志不记录物品最终落位。Jetson 时钟未同步，运行目录名中的 `1970` 不是实际运行日期。</sub>
+
+## 演示
+
+<table>
+  <tr><th>测试布局</th><th>夹爪上的红外传感器</th></tr>
+  <tr>
+    <td><img src="presentation/assets/sorting-layout.png" width="300" alt="俯视图：机器人位于起始位置，周围有三个网球、三个水瓶和两个放置区"></td>
+    <td><img src="presentation/assets/ep-infrared.jpg" width="300" alt="夹爪正面，上方是红外测距传感器，前方有一个网球"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>六个物品围绕起始位置，每类一个放置区</sub></td>
+    <td align="center"><sub>红外原始读数连续三次 ≤ 24 mm 时夹紧</sub></td>
+  </tr>
+  <tr><th>车载识别</th><th>Gazebo 仿真</th></tr>
+  <tr>
+    <td><img src="records/object_sorting/20260919/object-sort-19700101T011245258885Z/latest_detections.jpg" width="400" alt="夹爪相机画面：水瓶以 0.95 置信度被识别，位于抓取轴上"></td>
+    <td><img src="assets/sim-gazebo.png" width="400" alt="Gazebo 场景：EP 模型、网球和水瓶"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>6/6 运行中的 <code>yolo26m.pt</code>：水瓶 0.95，位于抓取轴上</sub></td>
+    <td align="center"><sub>Gazebo Classic 11 场景；存档运行放置了 6 件中的 1 件</sub></td>
+  </tr>
+</table>
+
+真机整轮运行（加速）：
 
 https://github.com/user-attachments/assets/731c6d1a-fc6a-4c20-8b2b-e82314770e40
 
-原速完整版（3:25）：[photos/result.mp4](photos/result.mp4)
+完整原片（3:25）：[photos/result.mp4](photos/result.mp4) · 仿真录屏：[simulation-final.mp4](records/simulation/simulation-final.mp4)
 
-## 原始任务要求
- 二、任务简化与系统接口
+## 工作流程
 
-桌面设置4–6个固定取物网格。视觉系统判断每个网格是否有物体及其类别，机械臂根据网格编号调用固定点抓取程序，不要求任意位置抓取。
+- **初始姿态**：机械臂外伸、夹爪松开，夹爪相机正视前方。起始位置和朝向是整轮的基准。
+- **搜索**：六个方位（0°、±36°、±144°、180°）。每次放置后转向转角最小的未搜索方位，转向时机械臂内收。
+- **对准与接近**：底盘每步转 5°，直到 YOLO 检测框位于抓取轴上，再每次前进约 1 cm。相机没有深度信息，由红外判断物品是否够得着。
+- **搬运与放置**：内收，沿记录的路径倒回起点，再转向对应类别的区域：球放右侧、瓶放左侧，各三个放置位。
+- **异常**：停车并将灯光切为红色，不自动复位。
 
-* 图像接口：sensor_msgs/Image。
-* 检测接口：vision_msgs/Detection2DArray，至少包含类别、检测框和置信度。
-* 抓取接口：ROS 2 Action或等价的可反馈长时间任务接口。
-* 任务控制：BehaviorTree或状态机。
+课程任务要求桌面网格；本项目改为围绕机器人的六个搜索方位（[任务原文](docs/task_requirements.md)）。
 
-三、仿真实验任务
+## 快速开始
 
-1. 建立机械臂、夹爪、俯视相机、桌面网格、至少2类物体。
-2. 仿真相机发布图像，识别节点发布物体类别、检测框和置信度。
-3. 根据检测框中心确定物体所在网格，并根据类别选择对应料盒。
-4. 调用抓取动作，完成取物、分类放置和返回。
-5. 循环处理桌面上的物体，直至全部处理完成或没有可执行目标。
-6. 处理空网格、未识别物体、不可达目标和抓取失败等异常。
-7. 使用一个Launch文件启动相机、识别、机械臂和任务控制节点。
-
-四、仿真验收标准
-
-* 自动识别并分类不少于2类物体。
-* 测试不少于6个物体，至少正确整理5个。
-* 任务开始后不得人工指定物体类别、抓取网格或放置区域。
-* 全过程不发生明显碰撞或关节超限。
-* 至少正确处理2类异常，并保存识别、抓取和任务状态日志。
-* 一个Launch文件能够启动完整仿真系统。
-
-五、真机验证任务
-
-1. 固定俯视RGB相机，在真实桌面标记取物网格和不少于2个分类区域。
-2. 准备不少于2类、共6个目标物体。
-3. 使用前序实验训练的检测模型识别物体类别和网格位置。
-4. 使用真机抓取程序，将不同类别放入对应料盒。
-5. 空网格和未识别物体应跳过；抓取失败或目标不可达时应返回安全位置或停止。
-6. 保存每个物体的识别类别、抓取结果、放置结果和异常信息。
-
-六、真机验收标准
-
-* 自动分类不少于2类物体。
-* 6个物体中至少正确整理5个。
-* 正常任务过程中不进行人工类别判断和动作触发。
-* 至少正确处理空网格和未识别物体两种情况。
-* 不发生碰撞、超限或危险动作，异常时能够安全停止。
-* 一个Launch文件能够启动图像、识别、机械臂和任务控制节点。
-
-七、提交材料
-
-* 完整ROS 2工程、Launch文件和依赖说明。
-* 目标检测模型、类别说明及桌面网格配置。
-* BehaviorTree XML或状态机配置文件。
-* 仿真与真机演示视频。
-* 分类结果、异常测试记录、任务日志和简要实验报告。
-
-## 个人补充要点
-* 核心设备：robomaster ep + jetson Orin NX
-* 设定两类物体：网球+550ml标准水瓶
-
-实现方案要点（建设中ing)：
-* 1.机械臂初始姿态为摄像机位置服务，确保在一个视野良好，识别率和识别范围都舒适的角度和位置
-* 2.机械臂大部分时候处于两个关节均回收的“收回”状态（包括但不限于零态、抓取到物品后的底盘旋转、移动）。仅在取物品时伸出
-* 3.底盘的初始位置距物品较远，为摄像机有较好的位置。
-* 得益于robomaster EP机械臂的简单双平行关节结构。“伸出”抓取物体的必要条件是物体位于摄像头画面的正中。问题在于如何在摄像头不具备深度信息的前提下判断物品是否能被够到。
-* 关于网球和水瓶的不同高度，其实只需要设置两个固定的分别用于这两种物体的抓夹高度。有视觉识别这一前提，判断使用哪种高度不成问题。
-
-* 抓取触发判定为红外原始读数不大于20 mm（连续3次）；实测近距离读数不等于尺量距离。
-* 近抓夹舵机永远不动，底盘舵机默认向前伸至最远。仅在抓取到目标后收回至最内，并保持至底盘转移到目标放置角度后，伸出进行放置。
-* 抓夹仅在抓取中收紧，其余时候松开
-* 结合以上可得出初始状态：外伸、抓夹松开。程序开始和结束后都要回归初始态。（中途错误卡死不需要回归，但要切换身体LED为红色）
-
-## 红外抓放测试 demo
-
-在 Ubuntu/Jetson 上运行 `./scripts/run_ir_demo_ubuntu.sh` 可预览配置，默认不会连接机器人。
-单次流程为红外原始读数不大于20 mm时夹取、内收搬运、右转 90° 放置，再返回外伸松爪初始态。
-普通官方 `models/yolo26m.pt` 已包含在仓库，YOLO 独立输出日志，不参与动作判定。
-实机执行前需要确认配置中的舵机映射和外伸/内收角度；详见
-[demo 使用说明](docs/ir_pick_place_demo.md)。
-
-红外距离实测使用 `bash scripts/run_ir_distance_ubuntu.sh --seconds 8 --label tennis-30mm --reference-mm 30`。
-此程序只记录距离反馈，不发送动作；先按尺量距离摆好目标，再运行。详见
-[红外实测说明](docs/ir_distance_measurement.md)。
-
-## YOLO转向与距离调整抓放demo（单个网球或瓶子）
-
-针对物品偏左/偏右的情况，底盘根据YOLO框中心每次小转最多5°，重新识别后再修正。
-连续三帧居中后，红外高于阈值则以4cm/s约1cm一步接近，停车重新识别；默认最多前进20cm。
-红外连续三次满足原始20mm阈值后抓取，此阈值不是实际2cm。无效反馈或目标丢失时停止亮红灯。
-抓夹侧ID2固定1073；底盘侧ID1在600和1190间动作。抓取内收后按里程记录退回起始中心，
-再朝启动方向右侧90°放球；`--target bottle`只跟踪瓶子，并改为左侧90°放置。
-实际yaw反馈补偿对准转角。使用普通`yolo26m.pt`、持续后台取帧与540p图传。
-网球和瓶子均已实机完成对准、接近、抓取、倒车回位、分类方向放置和恢复初态，并获现场确认。
+无需机器人，运行单元测试（已在 macOS 上用 Python 3.9 验证）：
 
 ```bash
-bash scripts/run_yolo_align_demo_ubuntu.sh --observe
-bash scripts/run_yolo_align_demo_ubuntu.sh --execute
-bash scripts/run_yolo_align_demo_ubuntu.sh --target bottle --observe
-bash scripts/run_yolo_align_demo_ubuntu.sh --target bottle --execute
+python3 -m pip install numpy opencv-python-headless pyyaml
+python3 -m unittest discover -s tests
 ```
 
-仅预览运行脚本不带参数。详见[新demo说明](docs/yolo_align_pick_place_demo.md)。
-
-## 六物品正式分拣
-
-ROS 2 工程已加入 `ros2_ws/`：包含图像话题、YOLO 检测话题、分拣 Action、任务客户端、Launch 和实际参与流程转移的 YAML 状态机。构建和运行方式见 [ROS 2 工程说明](ros2_ws/README.md)。原有脚本入口保留，便于对照已验证的实机动作。
-
-程序记录六个方位的待取、已取和未找到状态，每次选择与当前实际朝向转角最小的待取方位。
-复用demo2搜索球和瓶；抓取后退回启动中心，球放右区、瓶放左区，每区三个角度固定放置位。
-放置后松爪内收，直接转到下一搜索角度后再外伸；左右扫描同样先内收转向再外伸，整轮结束先内收回正再恢复初态。
-抓取与六个放置角度配置在`config/object_sorting.json`。2026-09-19整轮运行日志记录3球、3瓶均完成放置动作，程序正常结束；实际落位仍需现场核对。
+在机器人上，命令取自 [docs/object_sorting.md](docs/object_sorting.md)（编写本 README 时未重新运行）：
 
 ```bash
 bash scripts/run_sorting_ubuntu.sh
@@ -127,6 +88,50 @@ bash scripts/run_sorting_ubuntu.sh --observe --observe-frames 3
 bash scripts/run_sorting_ubuntu.sh --execute
 ```
 
-详见[分拣流程与角度配置](docs/object_sorting.md)。
+第一条命令只预览配置，不连接机器人。ROS 2 Launch 用法见 [ros2_ws/README.md](ros2_ws/README.md)。
 
-当前用户指定的稳定版标签：`stable-2026-09-18`。参数与验证范围见[稳定版基线](docs/stable_version.md)。
+## 环境
+
+| 设备 | 作用 | 软件 |
+| :-- | :-- | :-- |
+| RoboMaster EP | 麦轮底盘、双舵机机械臂、夹爪、相机、红外传感器 | `robomaster` SDK |
+| Jetson Orin NX | 识别与控制 | Ubuntu 20.04、Python 3.8、ROS 2 Foxy、Gazebo Classic 11、Ultralytics |
+| 任意电脑 | 单元测试 | Python 3、numpy、OpenCV、PyYAML |
+
+<sub>Jetson 上的版本取自仓库内的说明文档。</sub>
+
+> [!NOTE]
+> 不要在同一个 shell 中同时 source ROS 1 Noetic 和 ROS 2 Foxy。详见 [ros2_ws/README.md](ros2_ws/README.md)。
+
+## 目录结构
+
+```text
+.
+├── scripts/       机器人程序：红外 demo、YOLO 对准 demo、六物品分拣
+├── config/        舵机、红外、方位和放置参数；状态机 YAML
+├── ros2_ws/       ROS 2 包：ep_sorting、接口、Gazebo 仿真、EP 模型
+├── models/        yolo26m.pt（Ultralytics 官方权重）
+├── records/       真机与仿真运行日志
+├── docs/          使用说明和实机测试记录
+├── tests/         单元测试
+├── photos/        真机视频和布置照片
+├── presentation/  演示文稿
+└── assets/        README 媒体
+```
+
+## 致谢
+
+- EP 模型网格来自 [jeguzzi/robomaster_ros](https://github.com/jeguzzi/robomaster_ros)（MIT，许可证保留在 `ros2_ws/src/robomaster_description/`）。
+- 检测权重：[Ultralytics `yolo26m.pt` v8.4.0](https://github.com/ultralytics/assets/releases/tag/v8.4.0)，使用 COCO 类别 32（sports ball）和 39（bottle）。
+
+<sub>以 [MIT 许可证](LICENSE)发布。</sub>
+
+<!-- badge definitions: copy this block verbatim into every translation -->
+[ubuntu-shield]: https://img.shields.io/badge/Ubuntu-20.04-E95420?logo=ubuntu&logoColor=white
+[ubuntu-link]: https://releases.ubuntu.com/focal/
+[ros-shield]: https://img.shields.io/badge/ROS%202-Foxy-22314E?logo=ros&logoColor=white
+[ros-link]: https://docs.ros.org/en/foxy/
+[python-shield]: https://img.shields.io/badge/Python-3.8-3776AB?logo=python&logoColor=white
+[python-link]: https://www.python.org/downloads/release/python-380/
+[jetson-shield]: https://img.shields.io/badge/Jetson-Orin%20NX-76B900?logo=nvidia&logoColor=white
+[jetson-link]: https://developer.nvidia.com/embedded/jetson-orin

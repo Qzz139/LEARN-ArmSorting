@@ -1,128 +1,86 @@
+<div align="center">
+
+**English** · [简体中文](./README.zh-CN.md)
+
 # RoboMaster EP Six-Object Sorting
 
-English | [简体中文](README.zh-CN.md)
+A RoboMaster EP finds tennis balls and water bottles with YOLO, grasps them on an IR trigger, and sorts them by class.
+
+[Results](#results) · [Demo](#demo) · [How it works](#how-it-works) · [Quick start](#quick-start) · [Environment](#environment)
+
+[![Ubuntu 20.04][ubuntu-shield]][ubuntu-link]
+[![ROS 2 Foxy][ros-shield]][ros-link]
+[![Python 3.8][python-shield]][python-link]
+[![Jetson Orin NX][jetson-shield]][jetson-link]
+
+<img src="assets/hero-sorting.gif" width="480" alt="RoboMaster EP picking up tennis balls and bottles one by one and placing each class in its own zone">
+
+<sub>Real robot, one full run: 3 tennis balls and 3 bottles sorted into two zones (20× speed)</sub>
+
+</div>
+
+## Results
+
+| Part | What | Key result | Guide / evidence |
+| :-- | :-- | :-- | :-- |
+| ✅&nbsp;Six-object sorting | Real robot, full task | [6/6 placed (3 balls, 3 bottles) in 4 min 10 s](records/object_sorting/20260919/object-sort-19700101T011245258885Z/run.json)¹ | [Flow and angles](docs/object_sorting.md) · [Video](photos/result.mp4) |
+| ✅&nbsp;Single-object demo | Real robot, one ball or bottle | Full cycle for [ball](records/yolo_alignment/20260918/yolo-align-19700101T035651387074Z/run.json) and [bottle](records/yolo_alignment/20260918/yolo-align-19700101T041506006690Z/run.json); return-to-start error 6.33 mm / 5.66 mm | [Demo guide](docs/yolo_align_pick_place_demo.md) · [Test notes](docs/yolo_alignment_hardware_tests.md) |
+| 🚧&nbsp;ROS 2 wrapper | Nodes, action, state machine, launch file | No full hardware run archived yet | [ROS 2 guide](ros2_ws/README.md) |
+| 🚧&nbsp;Gazebo simulation | Same detector in Gazebo | [1/6 placed, run not completed](records/simulation/gazebo-sort-19700101T052904Z/summary.json) | [Simulation guide](ros2_ws/src/ep_sorting_sim/README.md) |
+
+<sub>✅ done · 🚧 in progress</sub>
+
+<sub>¹ "Placed" counts `sorting_item_placed` events: the arm finished a placement move. The log does not record where each object came to rest. The Jetson clock was not synchronized, so `1970` in run folder names is not the run date.</sub>
 
 ## Demo
 
-Real-robot run: sorting 3 tennis balls + 3 water bottles (sped up).
+<table>
+  <tr><th>Test layout</th><th>IR sensor on the gripper</th></tr>
+  <tr>
+    <td><img src="presentation/assets/sorting-layout.png" width="300" alt="Top view of the robot at its start pose with three tennis balls, three bottles and two placement zones"></td>
+    <td><img src="presentation/assets/ep-infrared.jpg" width="300" alt="Front view of the gripper with the IR distance sensor above it and a tennis ball in front"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Six objects around the start pose, one zone per class</sub></td>
+    <td align="center"><sub>Grasp when the raw IR reading is ≤ 24 mm three times in a row</sub></td>
+  </tr>
+  <tr><th>Onboard detection</th><th>Gazebo simulation</th></tr>
+  <tr>
+    <td><img src="records/object_sorting/20260919/object-sort-19700101T011245258885Z/latest_detections.jpg" width="400" alt="Gripper camera view with a bottle detected at confidence 0.95 on the grasp axis"></td>
+    <td><img src="assets/sim-gazebo.png" width="400" alt="Gazebo scene with the EP model, tennis balls and bottles"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><code>yolo26m.pt</code> during the 6/6 run: bottle 0.95 on the grasp axis</sub></td>
+    <td align="center"><sub>Gazebo Classic 11 scene; the archived run placed 1 of 6</sub></td>
+  </tr>
+</table>
+
+Full real-robot run (sped up):
 
 https://github.com/user-attachments/assets/731c6d1a-fc6a-4c20-8b2b-e82314770e40
 
-Full-length original (3:25): [photos/result.mp4](photos/result.mp4)
+Full-length original (3:25): [photos/result.mp4](photos/result.mp4) · Simulation recording: [simulation-final.mp4](records/simulation/simulation-final.mp4)
 
-## Original Task Requirements
+## How it works
 
-### 2. Task Simplification and System Interfaces
+- **Start pose**: arm extended, gripper open, so the gripper camera looks straight ahead. The start position and heading stay the reference for the whole run.
+- **Search**: six headings (0°, ±36°, ±144°, 180°). After each placement the robot turns to the nearest heading it has not searched yet, with the arm retracted while turning.
+- **Align and approach**: the chassis turns in 5° steps until the YOLO box is centered on the grasp axis, then moves forward about 1 cm at a time. The camera has no depth, so the IR sensor decides when the object is within reach.
+- **Carry and place**: retract, back up along the recorded path to the start, then turn to the class zone: balls to the right, bottles to the left, three slots each.
+- **Errors**: stop and turn the LEDs red; no automatic reset.
 
-Set up 4–6 fixed pick-up grid cells on the table. The vision system determines whether each cell contains an object and its class; the arm calls a fixed-point grasp routine by cell number. Grasping at arbitrary positions is not required.
+The course task asked for a tabletop grid. This project uses six search headings around the robot instead ([original task, Chinese](docs/task_requirements.md)).
 
-* Image interface: `sensor_msgs/Image`.
-* Detection interface: `vision_msgs/Detection2DArray`, containing at least class, bounding box and confidence.
-* Grasp interface: ROS 2 Action or an equivalent long-running task interface with feedback.
-* Task control: BehaviorTree or state machine.
+## Quick start
 
-### 3. Simulation Tasks
-
-1. Build the arm, gripper, top-down camera, table grid and at least 2 object classes.
-2. The simulated camera publishes images; the detection node publishes object class, bounding box and confidence.
-3. Determine the object's grid cell from the bounding-box center, and choose the bin by class.
-4. Call the grasp action to pick, place by class and return.
-5. Loop over the objects on the table until all are handled or no executable target remains.
-6. Handle exceptions such as empty cells, unrecognized objects, unreachable targets and grasp failures.
-7. Start the camera, detection, arm and task-control nodes from a single launch file.
-
-### 4. Simulation Acceptance Criteria
-
-* Automatically detect and sort at least 2 object classes.
-* Test at least 6 objects and correctly sort at least 5.
-* No manual specification of object class, grasp cell or placement area after the task starts.
-* No obvious collisions or joint-limit violations during the whole run.
-* Correctly handle at least 2 kinds of exceptions, and save detection, grasp and task-state logs.
-* One launch file starts the complete simulation system.
-
-### 5. Real-Robot Validation Tasks
-
-1. Fix a top-down RGB camera; mark pick-up cells and at least 2 sorting areas on a real table.
-2. Prepare 6 target objects across at least 2 classes.
-3. Use the detection model trained in earlier experiments to recognize object class and grid position.
-4. Use the real-robot grasp routine to put each class into its bin.
-5. Skip empty cells and unrecognized objects; on grasp failure or an unreachable target, return to a safe pose or stop.
-6. Save the detected class, grasp result, placement result and exception info for every object.
-
-### 6. Real-Robot Acceptance Criteria
-
-* Automatically sort at least 2 object classes.
-* Correctly sort at least 5 of 6 objects.
-* No manual class judgment or action triggering during a normal run.
-* Correctly handle at least two cases: empty cells and unrecognized objects.
-* No collisions, limit violations or dangerous motions; stop safely on exceptions.
-* One launch file starts the image, detection, arm and task-control nodes.
-
-### 7. Deliverables
-
-* Complete ROS 2 workspace, launch files and dependency notes.
-* Object detection model, class description and table grid configuration.
-* BehaviorTree XML or state-machine configuration.
-* Simulation and real-robot demo videos.
-* Sorting results, exception test records, task logs and a short experiment report.
-
-## Personal Notes
-
-* Core hardware: RoboMaster EP + Jetson Orin NX
-* Two object classes: tennis balls + standard 550 ml water bottles
-
-Implementation notes (work in progress):
-
-* 1. The arm's initial pose serves the camera: it keeps the view, detection rate and detection range comfortable.
-* 2. Most of the time the arm stays "retracted" with both joints pulled in (including the zero state, and chassis rotation/movement after grabbing an object). It extends only when picking.
-* 3. The chassis starts relatively far from the objects so the camera has a good viewpoint.
-* Thanks to the RoboMaster EP arm's simple dual-parallel-joint structure, a necessary condition for "extending" to grasp is that the object is centered in the camera image. The open question is how to tell whether the object is within reach without depth information from the camera.
-* Tennis balls and bottles differ in height, but two fixed gripper heights (one per class) are enough. Since vision already identifies the class, choosing the height is not a problem.
-
-* Grasp trigger: raw infrared reading ≤ 20 mm, three times in a row. Measured close-range readings do not equal ruler distance.
-* The servo near the gripper never moves. The chassis-side servo extends forward to its farthest position by default. It retracts fully only after grabbing a target, stays retracted until the chassis turns to the placement angle, then extends to place.
-* The gripper closes only while grasping; it stays open otherwise.
-* Combining the above gives the initial state: extended, gripper open. The program returns to it at start and at the end. (If it gets stuck on an error mid-run it does not need to return, but it switches the body LEDs to red.)
-
-## Infrared Pick-and-Place Test Demo
-
-On Ubuntu/Jetson, run `./scripts/run_ir_demo_ubuntu.sh` to preview the configuration; by default it does not connect to the robot.
-A single run grasps when the raw infrared reading is ≤ 20 mm, retracts to carry, turns right 90° to place, then returns to the extended, gripper-open initial state.
-The stock official `models/yolo26m.pt` is included in the repo. YOLO only writes its own log and does not take part in action decisions.
-Before running on the real robot, confirm the servo mapping and extend/retract angles in the config; see the
-[demo guide](docs/ir_pick_place_demo.md).
-
-Measure infrared distance with `bash scripts/run_ir_distance_ubuntu.sh --seconds 8 --label tennis-30mm --reference-mm 30`.
-This only records distance feedback and sends no motion commands; place the target at the ruler-measured distance first, then run it. See the
-[infrared measurement guide](docs/ir_distance_measurement.md).
-
-## YOLO Turn-and-Approach Pick-and-Place Demo (single tennis ball or bottle)
-
-When the object is off to the left or right, the chassis turns at most 5° at a time based on the YOLO box center, then re-detects and corrects.
-After three consecutive centered frames, if the infrared reading is above the threshold it approaches at 4 cm/s in ~1 cm steps, stopping to re-detect each time; by default it advances at most 20 cm.
-It grasps after three consecutive infrared readings meet the raw 20 mm threshold (this is not an actual 2 cm). On invalid feedback or a lost target it stops and lights red.
-Gripper-side servo ID2 is fixed at 1073; chassis-side ID1 moves between 600 and 1190. After grasping and retracting, it backs up to the starting center using odometry,
-then places the ball 90° to the right of the start heading; `--target bottle` tracks only bottles and places them 90° to the left.
-Actual yaw feedback compensates the alignment turn. Uses the stock `yolo26m.pt`, continuous background frame capture and 540p video streaming.
-Both the tennis ball and the bottle have completed alignment, approach, grasp, reversing back, class-direction placement and initial-state recovery on the real robot, confirmed on site.
+No robot needed. Run the unit tests (checked with Python 3.9 on macOS):
 
 ```bash
-bash scripts/run_yolo_align_demo_ubuntu.sh --observe
-bash scripts/run_yolo_align_demo_ubuntu.sh --execute
-bash scripts/run_yolo_align_demo_ubuntu.sh --target bottle --observe
-bash scripts/run_yolo_align_demo_ubuntu.sh --target bottle --execute
+python3 -m pip install numpy opencv-python-headless pyyaml
+python3 -m unittest discover -s tests
 ```
 
-Run the script without arguments for preview only. See the [new demo guide](docs/yolo_align_pick_place_demo.md).
-
-## Six-Object Sorting
-
-A ROS 2 workspace is in `ros2_ws/`: image topic, YOLO detection topic, sorting Action, task client, launch file and a YAML state machine that actually drives the flow transitions. See the [ROS 2 workspace guide](ros2_ws/README.md) for building and running. The original script entry points are kept for comparison with the verified real-robot motions.
-
-The program tracks six directions as pending, picked or not found, and each time picks the pending direction with the smallest turn from the current actual heading.
-It reuses demo 2 to search for balls and bottles. After grasping it backs up to the starting center; balls go to the right area and bottles to the left, each area with three fixed placement angles.
-After placing, it opens the gripper and retracts, turns straight to the next search angle, then extends. Left/right scanning likewise retracts before turning and extends afterward. At the end of a full round it retracts, re-centers, then restores the initial state.
-Grasp and the six placement angles are configured in `config/object_sorting.json`. The 2026-09-19 full-round run log records that all 3 balls and 3 bottles completed placement and the program ended normally; the actual placement positions still need on-site checking.
+On the robot, from [docs/object_sorting.md](docs/object_sorting.md) (not re-run for this README):
 
 ```bash
 bash scripts/run_sorting_ubuntu.sh
@@ -130,8 +88,50 @@ bash scripts/run_sorting_ubuntu.sh --observe --observe-frames 3
 bash scripts/run_sorting_ubuntu.sh --execute
 ```
 
-See [sorting flow and angle configuration](docs/object_sorting.md).
+The first command only previews the config and does not connect to the robot. For the ROS 2 launch file see [ros2_ws/README.md](ros2_ws/README.md).
 
-Current user-designated stable tag: `stable-2026-09-18`. For parameters and verification scope see the [stable baseline](docs/stable_version.md).
+## Environment
 
-> The linked docs under `docs/` and `ros2_ws/` are currently in Chinese.
+| Machine | Role | Software |
+| :-- | :-- | :-- |
+| RoboMaster EP | Mecanum chassis, two-servo arm, gripper, camera, IR sensor | `robomaster` SDK |
+| Jetson Orin NX | Detection and control | Ubuntu 20.04, Python 3.8, ROS 2 Foxy, Gazebo Classic 11, Ultralytics |
+| Any PC | Unit tests | Python 3, numpy, OpenCV, PyYAML |
+
+<sub>Jetson versions come from the repository's guides.</sub>
+
+> [!NOTE]
+> Do not source ROS 1 Noetic and ROS 2 Foxy in the same shell. See [ros2_ws/README.md](ros2_ws/README.md).
+
+## Repository layout
+
+```text
+.
+├── scripts/       robot programs: IR demo, YOLO alignment demo, six-object sorting
+├── config/        servo, IR, heading and placement parameters; state machine YAML
+├── ros2_ws/       ROS 2 packages: ep_sorting, interfaces, Gazebo simulation, EP model
+├── models/        yolo26m.pt (stock Ultralytics weights)
+├── records/       run logs from the robot and the simulation
+├── docs/          guides and hardware test notes (Chinese)
+├── tests/         unit tests
+├── photos/        real-robot video and setup photos
+├── presentation/  slides
+└── assets/        README media
+```
+
+## Acknowledgements
+
+- EP model meshes from [jeguzzi/robomaster_ros](https://github.com/jeguzzi/robomaster_ros) (MIT, license kept in `ros2_ws/src/robomaster_description/`).
+- Detector weights: [Ultralytics `yolo26m.pt` v8.4.0](https://github.com/ultralytics/assets/releases/tag/v8.4.0), COCO classes 32 (sports ball) and 39 (bottle).
+
+<sub>Released under the [MIT License](LICENSE).</sub>
+
+<!-- badge definitions: copy this block verbatim into every translation -->
+[ubuntu-shield]: https://img.shields.io/badge/Ubuntu-20.04-E95420?logo=ubuntu&logoColor=white
+[ubuntu-link]: https://releases.ubuntu.com/focal/
+[ros-shield]: https://img.shields.io/badge/ROS%202-Foxy-22314E?logo=ros&logoColor=white
+[ros-link]: https://docs.ros.org/en/foxy/
+[python-shield]: https://img.shields.io/badge/Python-3.8-3776AB?logo=python&logoColor=white
+[python-link]: https://www.python.org/downloads/release/python-380/
+[jetson-shield]: https://img.shields.io/badge/Jetson-Orin%20NX-76B900?logo=nvidia&logoColor=white
+[jetson-link]: https://developer.nvidia.com/embedded/jetson-orin
